@@ -50,7 +50,7 @@ getSecrets().then((res) => {
     app.use(logger(logFormat, { stream: accessLogStream }));
 
     app.use(express.json({ limit: process.env.EXPRESS_LIMIT }));
-    app.use(express.urlencoded({ extended: false }));
+    app.use(express.urlencoded({ extended: true }));
     app.use(cookieParser());
 
     app.use(bodyParser.json());
