@@ -1,0 +1,57 @@
+{
+  "name": "wren-frontend",
+  "version": "1.0",
+  "private": true,
+  "dependencies": {
+    "@reduxjs/toolkit": "^1.9.5",
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
+    "antd": "^5.4.2",
+    "axios": "^1.4.0",
+    "dayjs": "^1.11.10",
+    "emoji-picker-react": "^4.12.0",
+    "file-saver": "^2.0.5",
+    "html2pdf.js": "^0.10.2",
+    "moment": "^2.29.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-draggable": "^4.4.6",
+    "react-jwt": "^1.2.0",
+    "react-otp-input": "^3.1.1",
+    "react-redux": "^8.1.1",
+    "react-router-dom": "^6.10.0",
+    "react-webcam": "^7.2.0",
+    "sass": "^1.63.6",
+    "socket.io-client": "^4.7.5",
+    "web-vitals": "^2.1.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "GENERATE_SOURCEMAP=false react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "react-scripts": "5.0.1"
+  }
+}
