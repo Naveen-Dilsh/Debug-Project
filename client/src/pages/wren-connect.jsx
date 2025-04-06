@@ -83,6 +83,7 @@ const WrenConnect = () => {
         // Update messages in the chat data
         const updatedData = messageData.map((item) => {
           if (item.id === chat.id) {
+            // Reset unread count to 0 when selecting the chat
             return { ...item, unreadMessages: 0, messages }
           }
           return item
@@ -92,7 +93,21 @@ const WrenConnect = () => {
         setSelectedChat({
           ...chat,
           messages,
+          unreadMessages: 0, // Ensure the selected chat has 0 unread messages
         })
+
+        // Store the last read timestamp for this group
+        const lastReadTimestamps = JSON.parse(localStorage.getItem("lastReadTimestamps") || "{}")
+        lastReadTimestamps[chat.id] = Date.now()
+        localStorage.setItem("lastReadTimestamps", JSON.stringify(lastReadTimestamps))
+
+        // If using socket.io, emit an event to mark messages as read
+        if (socket.current) {
+          socket.current.emit("markMessagesAsRead", {
+            groupId: chat.id,
+            userId: JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))?.id,
+          })
+        }
       } else {
         // Handle single chat selection
         // Fetch individual chat messages (implementation needed)
@@ -192,13 +207,21 @@ const WrenConnect = () => {
     }
 
     // Get current user from local storage
-    const storedUser = localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
-    if (!storedUser) {
+    let currentUser
+    try {
+      const storedUser = localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
+      currentUser = storedUser ? JSON.parse(storedUser) : null
+    } catch (error) {
+      console.error("Error parsing stored user:", error)
+      sendNotify("error", "Failed to parse user data. Please log in again.")
+      return
+    }
+
+    if (!currentUser) {
       sendNotify("error", "User not found. Please log in again")
       return
     }
 
-    const currentUser = JSON.parse(storedUser)
     const userId = currentUser.id
     const selectedUserIds = selectedUsers.map((user) => user.id)
 
@@ -220,7 +243,7 @@ const WrenConnect = () => {
     }
 
     fetchApi(payload)
-      .then((response) => {
+      .then(async (response) => {
         console.log("Group creation response:", response)
 
         if (response?.error) {
@@ -236,21 +259,78 @@ const WrenConnect = () => {
           console.log("Extracted groupId:", groupId)
 
           if (groupId) {
-            // Add new group to message data
-            const newGroup = {
-              id: groupId,
-              imageURL: Default, // Use default image initially
-              groupName: groupName.trim(),
-              lastMessage: "Group created",
-              dateTime: new Date().toLocaleString(),
-              unreadMessages: 0,
-              type: "groups",
-              isOnline: true,
-              messages: [],
-            }
+            try {
+              // Fetch the group messages immediately to get the welcome message
+              const messages = await fetchGroupMessages(groupId)
 
-            setMessageData((prevData) => [...prevData, newGroup])
-            setSelectedChat(newGroup)
+              // Create the welcome message if it doesn't exist yet
+              const welcomeMessage =
+                messages.length > 0
+                  ? messages
+                  : [
+                      {
+                        id: 1,
+                        text: `Welcome to the group!\nCreated by ${currentUser.firstName} ${currentUser.lastName}`,
+                        attachment: [],
+                        time: new Date().toLocaleString(),
+                        isSender: true,
+                        senderName: "",
+                      },
+                    ]
+
+              // Get current user for welcome message
+              const storedCurrentUser = localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
+              const currentUser = storedCurrentUser ? JSON.parse(storedCurrentUser) : null
+
+              if (!currentUser) {
+                console.error("Current user not found in local storage")
+                return // Exit if current user is not found
+              }
+
+              const welcomeMessageText = `Welcome to the group!\nCreated by ${currentUser.firstName} ${currentUser.lastName}`
+
+              // Add new group to message data with the welcome message
+              const newGroup = {
+                id: groupId,
+                imageURL: Default, // Use default image initially
+                groupName: groupName.trim(),
+                lastMessage: welcomeMessageText, // Set the welcome message as the last message
+                dateTime: new Date().toLocaleString(),
+                unreadMessages: 1, // Set to 1 to show the orange bubble
+                type: "groups",
+                isOnline: true,
+                messages: welcomeMessage, // Include the welcome message
+              }
+
+              setMessageData((prevData) => [...prevData, newGroup])
+              setSelectedChat(newGroup)
+            } catch (error) {
+              console.error("Error fetching welcome message:", error)
+
+              // Fallback to empty messages if fetch fails
+              const storedCurrentUser = localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
+              const currentUser = storedCurrentUser ? JSON.parse(storedCurrentUser) : null
+
+              if (!currentUser) {
+                console.error("Current user not found in local storage")
+                return // Exit if current user is not found
+              }
+              const welcomeMessageText = `Welcome to the group!\nCreated by ${currentUser.firstName} ${currentUser.lastName}`
+              const newGroup = {
+                id: groupId,
+                imageURL: Default,
+                groupName: groupName.trim(),
+                lastMessage: welcomeMessageText, // Set welcome message as last message
+                dateTime: new Date().toLocaleString(),
+                unreadMessages: 1, // Set to 1 to show the orange bubble
+                type: "groups",
+                isOnline: true,
+                messages: [],
+              }
+
+              setMessageData((prevData) => [...prevData, newGroup])
+              setSelectedChat(newGroup)
+            }
 
             // If we have a custom image (not the default), upload it separately
             if (groupImage !== Default) {
@@ -353,6 +433,7 @@ const WrenConnect = () => {
   }
 
   // Create group API call
+  // Create group API call
   const createGroup = (group, callback) => {
     if (!group.name || !group.createdBy) {
       sendNotify("error", "Group name and creator information are required")
@@ -418,7 +499,14 @@ const WrenConnect = () => {
 
       // Get groups and current user info
       const groups = response.data || []
-      const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
+      let currentUser
+      try {
+        const storedUser = localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
+        currentUser = storedUser ? JSON.parse(storedUser) : null
+      } catch (error) {
+        console.error("Error parsing stored user:", error)
+        return
+      }
 
       if (!currentUser || !currentUser.id) {
         console.error("Current user information not found")
@@ -455,7 +543,7 @@ const WrenConnect = () => {
                 ? lastMessage.content
                 : "No messages",
             dateTime: new Date(group.createdAt).toLocaleString(),
-            unreadMessages: group.messages ? group.messages.filter((msg) => !msg.read).length : 0,
+            unreadMessages: calculateUnreadMessages(group),
             type: "groups",
             isOnline: true,
             messages: formatMessages(group.messages, currentUser.id.toString()) || [],
@@ -473,6 +561,28 @@ const WrenConnect = () => {
     } catch (error) {
       console.error("Error fetching groups:", error)
       sendNotify("error", "Failed to load groups")
+    }
+  }
+
+  // Add this function after fetchAllGroups
+  const calculateUnreadMessages = (group) => {
+    if (!group.messages || !Array.isArray(group.messages) || group.messages.length === 0) {
+      return 0
+    }
+
+    try {
+      // Get the last read timestamps from localStorage
+      const lastReadTimestamps = JSON.parse(localStorage.getItem("lastReadTimestamps") || "{}")
+      const lastReadTime = lastReadTimestamps[group._id] || 0
+
+      // Count messages that arrived after the last read time
+      return group.messages.filter((msg) => {
+        const msgTimestamp = msg.timestamp || 0
+        return msgTimestamp > lastReadTime
+      }).length
+    } catch (error) {
+      console.error("Error calculating unread messages:", error)
+      return 0
     }
   }
 
@@ -612,6 +722,52 @@ const WrenConnect = () => {
   const filteredMessageData = searchTerm
     ? messageData.filter((chat) => chat.groupName.toLowerCase().includes(searchTerm.toLowerCase()))
     : messageData
+
+  useEffect(() => {
+    fetchUsers()
+
+    // Set up socket event listeners
+    if (socket.current) {
+      // Listen for new messages
+      socket.current.on("newMessage", (data) => {
+        if (data.groupId) {
+          // Update message data with new message
+          setMessageData((prevData) => {
+            return prevData.map((chat) => {
+              if (chat.id === data.groupId) {
+                // Only increment unread count if this isn't the currently selected chat
+                const isSelected = selectedChat && selectedChat.id === data.groupId
+                return {
+                  ...chat,
+                  lastMessage: data.content,
+                  dateTime: new Date(data.timestamp).toLocaleString(),
+                  unreadMessages: isSelected ? 0 : chat.unreadMessages + 1,
+                  messages: [
+                    ...(chat.messages || []),
+                    {
+                      id: Date.now(),
+                      text: data.content,
+                      attachment: data.attachment || [],
+                      time: new Date(data.timestamp).toLocaleString(),
+                      isSender:
+                        data.sender === JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))?.id,
+                      senderName: data.senderName || "",
+                    },
+                  ],
+                }
+              }
+              return chat
+            })
+          })
+        }
+      })
+
+      // Clean up socket listeners on component unmount
+      return () => {
+        socket.current.off("newMessage")
+      }
+    }
+  }, [selectedChat])
 
   return (
     <div className="main-container">
