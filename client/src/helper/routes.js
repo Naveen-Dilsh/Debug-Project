@@ -19,8 +19,9 @@ import Notifications from "../pages/notifications";
 import WorldCheck from "../pages/world-check";
 import FraudAssessment from "../pages/fraud-assessment";
 import FinalReport from "../pages/final-report";
-import WrenConnect from "../pages/wren-connect";
 import NotFound from "../pages/not-found";
+import WrenConnect from "../pages/wren-connect/wrenConnect";
+
 
 const routes = [
   {
@@ -149,7 +150,7 @@ const routes = [
   {
     name: "WrenConnect",
     path: "wren-connect",
-    component: <WrenConnect />,
+    component: <WrenConnect/>,
     icon: "ri-message-2-line",
     type: "private",
     permissions: ["super-admin", "client"],
