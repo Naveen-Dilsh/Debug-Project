@@ -1,4 +1,4 @@
-"use client"
+// -------------------------------------Remove This filr---------------------------------------------//
 
 import { useState, useEffect, useRef } from "react"
 import ChatBoxContainer from "../components/ChatBoxContainer"
@@ -8,7 +8,7 @@ import Default from "../assets/img/default_dp.png"
 import io from "socket.io-client"
 import { sendNotify, fetchApi } from "../helper"
 
-const WrenConnect = () => {
+const WrenOLDConnect = () => {
   // Socket connection
   const socket = useRef()
   socket.current = io(process.env.REACT_APP_SOCKET_URL)
@@ -826,5 +826,5 @@ const WrenConnect = () => {
   )
 }
 
-export default WrenConnect
+export default WrenOLDConnect
 
