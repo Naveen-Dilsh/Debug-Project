@@ -6,6 +6,7 @@ const initializeRoutes = (app) => {
   app.use("/api/v1/wc-report", require("./v1/worldCheck.routes"));
   app.use("/api/v1/messages", require("./v1/messages.route"));
   app.use("/api/v1/chat", require("./v1/groups.routes"));
+  app.use("/api/v1/analyst", require("./v1/analystChat.routes"))
 };
 
 module.exports = initializeRoutes;
