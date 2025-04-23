@@ -1,3 +1,6 @@
+"use client"
+
+// wren-connect.tsx
 
 import { useState, useEffect } from "react"
 import ChatBoxContainer from "../../components/ChatBoxContainer"
@@ -7,6 +10,13 @@ import WrenChatPopup from "../../components/Wren-Connect/WrenChatPop"
 import WrenGroupCreationPopup from "../../components/Wren-Connect/WrenGroupCreate"
 import { initializeSocket } from "../../services/wrenSocket"
 import { fetchUsers, fetchAllGroups, handleChatSelect } from "../../services/wrenChatAPI"
+import {
+  fetchAnalysts,
+  fetchAnalystChats,
+  handleAnalystChatSelect,
+  initializeAnalystChat,
+  fetchChatMessages,
+} from "../../services/analystChatAPI"
 import { DEFAULT_IMAGE } from "../../constant/wrenConstant"
 import { sendNotify } from "../../helper/index"
 
@@ -14,8 +24,10 @@ const WrenConnect = () => {
   // State management
   const [messageData, setMessageData] = useState([])
   const [usersData, setUsersData] = useState([])
+  const [analystData, setAnalystData] = useState([])
   const [selectedChat, setSelectedChat] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
   // Group creation state
   const [popupVisible, setPopupVisible] = useState(false)
@@ -43,11 +55,32 @@ const WrenConnect = () => {
 
   // Setup socket listeners
   const setupSocketListeners = () => {
-    if (socket) {
-      socket.on("newMessage", (data) => {
-        handleNewMessage(data)
-      })
+    if (!socket) {
+      console.error("Socket not initialized")
+      // Try to reinitialize
+      const newSocket = initializeSocket()
+      if (!newSocket) {
+        sendNotify("error", "Failed to connect to chat server")
+        return
+      }
     }
+
+    console.log("Setting up socket listeners")
+
+    socket.on("connect", () => {
+      console.log("Socket connected successfully")
+    })
+
+    socket.on("connect_error", (error) => {
+      console.error("Socket connection error:", error)
+      // sendNotify("error", "Chat connection error")
+    })
+
+    // Listen for group messages
+    socket.on("newMessage", (data) => {
+      console.log("Received group message:", data)
+      handleNewMessage(data)
+    })
   }
 
   // Handle incoming new messages from socket
@@ -58,7 +91,7 @@ const WrenConnect = () => {
           if (chat.id === data.groupId) {
             const isSelected = selectedChat && selectedChat.id === data.groupId
             const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
-            
+
             return {
               ...chat,
               lastMessage: data.content,
@@ -83,37 +116,118 @@ const WrenConnect = () => {
     }
   }
 
-  // Load initial users and groups data
+  // Load initial users, groups, and analysts data
   const loadInitialData = async () => {
     try {
+      setIsLoading(true)
+
+      // Fetch users
       const users = await fetchUsers()
       setUsersData(users)
       setMessageData(users)
-      
+
+      // Fetch groups
       const groups = await fetchAllGroups(users)
-      setMessageData(prevData => {
+      setMessageData((prevData) => {
         // Remove any duplicates before adding
-        const existingIds = new Set(groups.map(g => g.id))
-        const filteredPrevData = prevData.filter(item => 
-          item.type !== "groups" || !existingIds.has(item.id)
-        )
+        const existingIds = new Set(groups.map((g) => g.id))
+        const filteredPrevData = prevData.filter((item) => item.type !== "groups" || !existingIds.has(item.id))
         return [...filteredPrevData, ...groups]
       })
+
+      // Fetch analysts
+      const analysts = await fetchAnalysts()
+      setAnalystData(analysts)
+
+      // Add analysts to message data
+      setMessageData((prevData) => {
+        // Remove any duplicates before adding
+        const existingIds = new Set(analysts.map((a) => a.id))
+        const filteredPrevData = prevData.filter((item) => item.type !== "analyst" || !existingIds.has(item.id))
+        return [...filteredPrevData, ...analysts]
+      })
+
+      // Fetch existing analyst chats
+      const analystChats = await fetchAnalystChats()
+      if (analystChats.length > 0) {
+        setMessageData((prevData) => {
+          // Remove any duplicates before adding
+          const existingIds = new Set(analystChats.map((c) => c.id))
+          const filteredPrevData = prevData.filter((item) => item.type !== "analyst" || !existingIds.has(item.id))
+          return [...filteredPrevData, ...analystChats]
+        })
+      }
     } catch (error) {
       console.error("Error loading initial data:", error)
-      sendNotify("error", "Failed to load users or groups")
+      sendNotify("error", "Failed to load users, groups, or analysts")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Refresh messages for the selected chat
+  const refreshMessages = async () => {
+    if (!selectedChat || !selectedChat.id) return
+
+    try {
+      setIsLoading(true)
+
+      if (selectedChat.type === "analyst") {
+        // Fetch latest messages for analyst chat
+        const { success, messages } = await fetchChatMessages(selectedChat.id)
+
+        if (success) {
+          // Update the selected chat with new messages
+          setSelectedChat((prev) => ({
+            ...prev,
+            messages: messages,
+          }))
+
+          // Also update in the message data
+          setMessageData((prevData) => {
+            return prevData.map((chat) => {
+              if (chat.id === selectedChat.id) {
+                return {
+                  ...chat,
+                  messages: messages,
+                  unreadMessages: 0,
+                }
+              }
+              return chat
+            })
+          })
+        }
+      }
+      // Add similar logic for group chats if needed
+    } catch (error) {
+      console.error("Error refreshing messages:", error)
+      sendNotify("error", "Failed to refresh messages")
+    } finally {
+      setIsLoading(false)
     }
   }
 
   // Handle chat selection (wrapper function)
   const onChatSelect = async (chat) => {
     try {
-      const { updatedData, updatedChat } = await handleChatSelect(chat, messageData, socket)
-      setMessageData(updatedData)
-      setSelectedChat(updatedChat)
+      setIsLoading(true)
+
+      if (chat.type === "analyst") {
+        // Handle analyst chat selection - no socket needed
+        const { updatedData, updatedChat } = await handleAnalystChatSelect(chat, messageData)
+        setMessageData(updatedData)
+        setSelectedChat(updatedChat)
+      } else {
+        // Handle regular chat selection
+        const { updatedData, updatedChat } = await handleChatSelect(chat, messageData, socket)
+        setMessageData(updatedData)
+        setSelectedChat(updatedChat)
+      }
     } catch (error) {
       console.error("Error selecting chat:", error)
       sendNotify("error", "Failed to load chat messages")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -148,7 +262,7 @@ const WrenConnect = () => {
   }
 
   // Add user to chat list for individual chat
-  const addUserToChat = (user) => {
+  const addUserToChat = async (user) => {
     if (!user || !user.designation) return
 
     // Check if chat already exists
@@ -170,6 +284,27 @@ const WrenConnect = () => {
         type: user.type.toLowerCase(),
         isOnline: user.isOnline || false,
         messages: [],
+      }
+
+      // If it's an analyst, initialize the chat
+      if (user.type.toLowerCase() === "analyst") {
+        try {
+          const initializedChat = await initializeAnalystChat(user.id)
+          if (initializedChat) {
+            newChat.id = initializedChat._id
+            newChat.analystId = initializedChat.analystId
+            newChat.userId = initializedChat.userId
+
+            // Fetch initial messages if available
+            const { success, messages } = await fetchChatMessages(newChat.id)
+            if (success) {
+              newChat.messages = messages
+            }
+          }
+        } catch (error) {
+          console.error("Error initializing analyst chat:", error)
+          sendNotify("error", "Failed to initialize analyst chat")
+        }
       }
 
       setMessageData((prevData) => [...prevData, newChat])
@@ -237,7 +372,7 @@ const WrenConnect = () => {
       <div className="rightColumnMain">
         {selectedChat ? (
           <div className="chatwindow">
-            <ChatWindow user={selectedChat} />
+            <ChatWindow user={selectedChat} refreshMessages={refreshMessages} isLoading={isLoading} />
           </div>
         ) : (
           <div className="empty-chat-placeholder">
@@ -245,7 +380,7 @@ const WrenConnect = () => {
           </div>
         )}
       </div>
-      
+
       {popupVisible && (
         <WrenChatPopup
           togglePopup={togglePopup}
@@ -257,7 +392,7 @@ const WrenConnect = () => {
           proceedToGroupCreation={proceedToGroupCreation}
         />
       )}
-      
+
       {showGroupCreationPopup && (
         <WrenGroupCreationPopup
           closePopup={() => setShowGroupCreationPopup(false)}
