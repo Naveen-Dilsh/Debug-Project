@@ -1,85 +1,123 @@
-import React, { useState, useEffect, useRef } from "react";
-import EmojiPicker from "emoji-picker-react";
-import "../assets/css/style.scss";
-import { io } from "socket.io-client";
-import { sendNotify, fetchApi } from "../helper";
-import { Image, Modal } from "antd";
+"use client"
 
-const socket = io(process.env.REACT_APP_SOCKET_URL);
+import { useState, useEffect, useRef } from "react"
+import EmojiPicker from "emoji-picker-react"
+import "../assets/css/style.scss"
+import { io } from "socket.io-client"
+import { sendNotify, fetchApi } from "../helper"
+import { Image, Modal } from "antd"
+import { sendAnalystMessage, fetchChatMessages } from "../services/analystChatAPI"
+
+const socket = io(process.env.REACT_APP_SOCKET_URL)
 
 const ChatWindow = ({ user, chatHistory }) => {
+  const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
+  const userRef = useRef(user)
+  const chatHistoryRef = useRef(chatHistory)
+  const [isOnline, setIsOnline] = useState(user.type !== "groups" && user.isOnline)
+  const [messages, setMessages] = useState([])
+  const [selectedImages, setSelectedImages] = useState([])
+  const [chatId, setChatId] = useState(user.id) // Store the actual chat ID
 
-  const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const userRef = useRef(user);
-  const chatHistoryRef = useRef(chatHistory);
-  const [isOnline, setIsOnline] = useState(user.type !== "groups" && user.isOnline);
-  const [messages, setMessages] = useState([]);
-  const [selectedImages, setSelectedImages] = useState([]);
+  const [newMessage, setNewMessage] = useState("")
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false)
+  const [visible, setVisible] = useState(false)
 
-  const [newMessage, setNewMessage] = useState("");
-  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
-  const [visible, setVisible] = useState(false);
-   
-  const [arrivalMessage, setArrivalMessage] = useState(null);
+  const [arrivalMessage, setArrivalMessage] = useState(null)
+
+  // Validate and ensure we have the correct chat ID
+  useEffect(() => {
+    if (user.type === "analyst") {
+      // Check if this is a valid MongoDB ObjectId
+      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(user.id)
+
+      if (!isValidObjectId) {
+        console.log("Not a valid chat ID, might be an analyst ID:", user.id)
+        // We'll keep using the provided ID, but log a warning
+      }
+
+      setChatId(user.id)
+    } else {
+      setChatId(user.id)
+    }
+  }, [user.id, user.type])
 
   useEffect(() => {
     if (user.type !== "groups") {
       socket.on("user-status", (status) => {
         if (status.userId === user.id) {
-          setIsOnline(status.isOnline);
+          setIsOnline(status.isOnline)
         }
-      });
-  
+      })
+
       return () => {
-        socket.off("user-status");
-      };
+        socket.off("user-status")
+      }
     }
-  }, [user.id, user.type]);
+  }, [user.id, user.type])
 
   useEffect(() => {
     if (user.type == "groups") {
-      setMessages(user.messages || []);
+      setMessages(user.messages || [])
     } else {
-      setMessages(chatHistory ? chatHistory : []);
+      setMessages(chatHistory ? chatHistory : [])
     }
 
     if (userRef.current) {
-      userRef.current = user;
+      userRef.current = user
     }
-  }, [user]);
+  }, [user, chatHistory])
 
   useEffect(() => {
     if (chatHistoryRef.current) {
-      chatHistoryRef.current = chatHistory;
+      chatHistoryRef.current = chatHistory
     }
-    setMessages(chatHistory);
-  }, [chatHistory]);
+    setMessages(chatHistory)
+  }, [chatHistory])
 
   useEffect(() => {
-    const currentUserId_ = localStorage.getItem("CURRUNT_USER_ID");
+    const currentUserId_ = localStorage.getItem("CURRUNT_USER_ID")
     if (currentUserId_) {
-      socket.emit("add-user", currentUserId_);
+      socket.emit("add-user", currentUserId_)
     }
-  }, []);
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  }, [])
 
   useEffect(() => {
-    arrivalMessage && setMessages((prev) => [...prev, arrivalMessage]);
-  }, [arrivalMessage]);
+    scrollToBottom()
+  }, [messages])
 
   useEffect(() => {
-    setMessages(user.messages);
-  }, [user]);
+    arrivalMessage && setMessages((prev) => [...prev, arrivalMessage])
+  }, [arrivalMessage])
+
+  useEffect(() => {
+    setMessages(user.messages)
+  }, [user])
+
+  useEffect(() => {
+    // Fetch analyst messages when user type is analyst
+    if (user.type === "analyst" && chatId) {
+      fetchChatMessages(chatId)
+        .then(({ success, messages }) => {
+          if (success && messages.length > 0) {
+            setMessages(messages)
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching analyst messages:", error)
+          sendNotify("error", "Failed to load analyst messages")
+        })
+    }
+  }, [chatId, user.type])
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
   useEffect(() => {
     socket.on("msg-recieve", (msg) => {
-      console.log(" recieve message payload:", msg);
+      console.log(" recieve message payload:", msg)
       if (userRef.current.id === msg.sender) {
         setArrivalMessage({
           id: `${msg.sender}-${msg.text}-${Date.now()}`,
@@ -89,20 +127,22 @@ const ChatWindow = ({ user, chatHistory }) => {
             minute: "2-digit",
           }),
           isSender: false,
-        });
+        })
       }
-    });
-  }, []);
+    })
+
+    return () => {
+      socket.off("msg-recieve")
+    }
+  }, [])
 
   useEffect(() => {
-    socket.emit("join-room", user.id);
+    socket.emit("join-room", user.id)
 
     socket.on("group-msg-recieve", (msg) => {
-      const currentUser = JSON.parse(
-        localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
-      );
+      const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
       if (msg.socketId !== socket.id && msg.groupId == user.id) {
-        console.log("Message received from server:", msg.text);
+        console.log("Message received from server:", msg.text)
         setMessages((prevMessages) => [
           ...prevMessages,
           {
@@ -111,44 +151,44 @@ const ChatWindow = ({ user, chatHistory }) => {
             time: Date.now(),
             isSender: false,
             senderName: msg.senderName,
-            attachment:msg.attachment
+            attachment: msg.attachment,
           },
-        ]);
+        ])
       }
-    });
+    })
     // Cleanup: Disconnect socket when component unmounts
     return () => {
-      socket.off("group-msg-recieve");
-    };
-  }, [user.id]);
+      socket.off("group-msg-recieve")
+    }
+  }, [user.id])
 
   const openModal = (images) => {
-    setSelectedImages(images);
-    setVisible(true);
-  };
+    setSelectedImages(images)
+    setVisible(true)
+  }
+
   const formatTime = (timestamp) => {
-    const now = Date.now();
-    const differenceInMinutes = Math.floor((now - timestamp) / 60000);
+    const now = Date.now()
+    const differenceInMinutes = Math.floor((now - timestamp) / 60000)
 
     if (differenceInMinutes < 1) {
-      return "now";
+      return "now"
     } else {
-      return timestamp;
+      return timestamp
     }
-  };
+  }
+
   const handleSendMessage = () => {
-    console.log("user.type = " + user.type);
+    console.log("user.type = " + user.type)
     if (user.type == "groups") {
       if (newMessage.trim()) {
-        const currentUser = JSON.parse(
-          localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
-        );
+        const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
         const messagePayload = {
           id: messages.length + 1,
           text: newMessage,
           time: Date.now(),
           isSender: true,
-        };
+        }
 
         if (user.type === "groups") {
           // add msg to database
@@ -157,13 +197,13 @@ const ChatWindow = ({ user, chatHistory }) => {
             senderId: currentUser.id.toString(),
             messageText: newMessage,
             senderName: currentUser.firstName + " " + currentUser.lastName,
-          });
+          })
           socket.emit("send-group-msg", {
             text: newMessage,
             sender: currentUser.id.toString(),
             groupId: user.id,
             senderName: currentUser.firstName + " " + currentUser.lastName,
-          });
+          })
         }
 
         setMessages([
@@ -173,15 +213,49 @@ const ChatWindow = ({ user, chatHistory }) => {
             text: newMessage,
             time: Date.now(),
             isSender: true,
-            attachment:[]
+            attachment: [],
           },
-        ]);
-        setNewMessage("");
+        ])
+        setNewMessage("")
+      }
+    } else if (user.type === "analyst") {
+      // Handle analyst chat
+      if (newMessage.trim()) {
+        const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
+
+        // Add message to UI immediately for better UX
+        setMessages([
+          ...messages,
+          {
+            id: messages.length + 1,
+            text: newMessage,
+            time: new Date().toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            isSender: true,
+            attachment: [],
+          },
+        ])
+
+        // Send message to API using the correct chat ID
+        sendAnalystMessage(chatId, newMessage)
+          .then((success) => {
+            if (!success) {
+              sendNotify("error", "Failed to send message to analyst")
+            }
+          })
+          .catch((error) => {
+            console.error("Error sending analyst message:", error)
+            sendNotify("error", "Error sending message")
+          })
+
+        setNewMessage("")
       }
     } else {
-      console.log("++++++++++++++++++");
+      console.log("++++++++++++++++++")
       if (newMessage.trim()) {
-        console.log("++++++++++++++++++");
+        console.log("++++++++++++++++++")
 
         const messagePayload = {
           text: newMessage,
@@ -189,10 +263,10 @@ const ChatWindow = ({ user, chatHistory }) => {
           receiver: user.id,
           receiverName: user.name,
           socketId: socket.id,
-        };
+        }
 
-        socket.emit("send-msg", messagePayload);
-        console.log("send message payload:", messagePayload);
+        socket.emit("send-msg", messagePayload)
+        console.log("send message payload:", messagePayload)
 
         setMessages([
           ...messages,
@@ -204,187 +278,190 @@ const ChatWindow = ({ user, chatHistory }) => {
               minute: "2-digit",
             }),
             isSender: true,
-            attachment:[]
+            attachment: [],
           },
-        ]);
-        setNewMessage("");
+        ])
+        setNewMessage("")
       }
     }
-  };
+  }
 
   const addMessageToDB = (messageData) => {
-    let payload = {
+    const payload = {
       method: "POST",
       url: "/chat/savemessage",
       data: messageData,
-    };
+    }
 
     fetchApi(payload)
       .then((response) => {
-        console.log(response);
+        console.log(response)
         if (response) {
           if (response?.error) {
-            sendNotify("error", response?.error?.response?.data?.message);
+            sendNotify("error", response?.error?.response?.data?.message)
           } else {
-            sendNotify("success", response?.message);
+            sendNotify("success", response?.message)
           }
         }
       })
       .catch((error) => {
-        sendNotify("error", "An error occurred: " + JSON.stringify(error));
-      });
-  };
-
-
-  const handleAttachmentClick = () => {
-    fileInputRef.current.click();
-  };
-
- 
-const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
- 
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
- 
-        
-        if (width > height) {
-          if (width > maxWidth) {
-            height *= maxWidth / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width *= maxHeight / height;
-            height = maxHeight;
-          }
-        }
- 
-        canvas.width = width;
-        canvas.height = height;
- 
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
- 
-        canvas.toBlob(
-          (blob) => {
-            resolve(blob);
-          },
-          "image/jpeg", 
-          quality
-        );
-      };
- 
-      img.onerror = (error) => reject(error);
-    };
- 
-    reader.onerror = (error) => reject(error);
-  });
-};
-
-const convertBlobToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-  });
-};
-const handleFileChange = async (event) => {
-  const uploadedFiles = Array.from(event.target.files);
- 
- 
-  const attachmentFile = await Promise.all(
-    uploadedFiles.map(async (file) => {
-      const compressedBlob =file// await compressImage(file);
-      const base64String = await convertBlobToBase64(compressedBlob);
- 
-      return {
-        id: messages.length + 1,
-        text: file.name,
-        time: "Now",
-        isSender: true,
-        fileURL: base64String,
-      };
-    })
-  );
- 
-  const currentUser = JSON.parse(
-    localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
-  );
-  addMessageToDB({
-    groupId: user.id,
-    senderId: currentUser?.id?.toString(),
-    messageText: newMessage,
-    attachment: attachmentFile,
-    senderName: currentUser.firstName + " " + currentUser.lastName,
-  });
- 
-  socket.emit("send-group-msg", {
-    text: newMessage,
-    attachment: attachmentFile,
-    sender: currentUser.id.toString(),
-    groupId: user.id,
-    senderName: currentUser.firstName + " " + currentUser.lastName,
-  });
-  const messagePayload = {
-    text: newMessage,
-    attachment: attachmentFile,
-    sender: localStorage.getItem("CURRUNT_USER_ID"),
-    receiver: user.id,
-    receiverName: user.name,
-    socketId: socket.id,
-  };
-  socket.emit("send-msg", messagePayload);
-
- setMessages([...messages, ...attachmentFile]);
-
-};
-
-
-
-  const handleEmojiClick = (emoji) => {
-    setNewMessage(newMessage + emoji.emoji);
-    setIsEmojiPickerOpen(false);
-  };
-
-  
-
-  function getMessageText(message) {
-    const currentUser = JSON.parse(
-      localStorage.getItem(process.env.REACT_APP_CURRENT_USER)
-    );
-    if (
-      message ===
-      "Welcome to the group!\ncreated by " +
-        currentUser.firstName +
-        " " +
-        currentUser.lastName
-    ) {
-      return "Welcome to the group! Created by you";
-    } else {
-      return message;
-    }
+        sendNotify("error", "An error occurred: " + JSON.stringify(error))
+      })
   }
 
- 
+  const handleAttachmentClick = () => {
+    fileInputRef.current.click()
+  }
+
+  const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = new Image()
+        img.src = event.target.result
+
+        img.onload = () => {
+          const canvas = document.createElement("canvas")
+          let width = img.width
+          let height = img.height
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width
+              width = maxWidth
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height
+              height = maxHeight
+            }
+          }
+
+          canvas.width = width
+          canvas.height = height
+
+          const ctx = canvas.getContext("2d")
+          ctx.drawImage(img, 0, 0, width, height)
+
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob)
+            },
+            "image/jpeg",
+            quality,
+          )
+        }
+
+        img.onerror = (error) => reject(error)
+      }
+
+      reader.onerror = (error) => reject(error)
+    })
+  }
+
+  const convertBlobToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onloadend = () => resolve(reader.result)
+      reader.onerror = reject
+    })
+  }
+
+  const handleFileChange = async (event) => {
+    const uploadedFiles = Array.from(event.target.files)
+
+    const attachmentFile = await Promise.all(
+      uploadedFiles.map(async (file) => {
+        const compressedBlob = file // await compressImage(file);
+        const base64String = await convertBlobToBase64(compressedBlob)
+
+        return {
+          id: messages.length + 1,
+          text: file.name,
+          time: "Now",
+          isSender: true,
+          fileURL: base64String,
+        }
+      }),
+    )
+
+    const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
+
+    if (user.type === "analyst") {
+      // For analyst chats, use the correct chat ID
+      const messageData = {
+        chatId: chatId,
+        senderId: currentUser?.id?.toString(),
+        messageText: newMessage,
+        attachment: attachmentFile,
+        senderName: currentUser.firstName + " " + currentUser.lastName,
+      }
+
+      // Use the analyst message API
+      sendAnalystMessage(chatId, newMessage, attachmentFile)
+        .then((success) => {
+          if (!success) {
+            sendNotify("error", "Failed to send attachment to analyst")
+          }
+        })
+        .catch((error) => {
+          console.error("Error sending analyst attachment:", error)
+          sendNotify("error", "Error sending attachment")
+        })
+    } else {
+      // For group chats, use the existing logic
+      addMessageToDB({
+        groupId: user.id,
+        senderId: currentUser?.id?.toString(),
+        messageText: newMessage,
+        attachment: attachmentFile,
+        senderName: currentUser.firstName + " " + currentUser.lastName,
+      })
+
+      socket.emit("send-group-msg", {
+        text: newMessage,
+        attachment: attachmentFile,
+        sender: currentUser.id.toString(),
+        groupId: user.id,
+        senderName: currentUser.firstName + " " + currentUser.lastName,
+      })
+
+      const messagePayload = {
+        text: newMessage,
+        attachment: attachmentFile,
+        sender: localStorage.getItem("CURRUNT_USER_ID"),
+        receiver: user.id,
+        receiverName: user.name,
+        socketId: socket.id,
+      }
+      socket.emit("send-msg", messagePayload)
+    }
+
+    // Update UI with the new attachments
+    setMessages([...messages, ...attachmentFile])
+  }
+
+  const handleEmojiClick = (emoji) => {
+    setNewMessage(newMessage + emoji.emoji)
+    setIsEmojiPickerOpen(false)
+  }
+
+  function getMessageText(message) {
+    const currentUser = JSON.parse(localStorage.getItem(process.env.REACT_APP_CURRENT_USER))
+    if (message === "Welcome to the group!\ncreated by " + currentUser.firstName + " " + currentUser.lastName) {
+      return "Welcome to the group! Created by you"
+    } else {
+      return message
+    }
+  }
 
   return (
     <div className="chat-window">
       <div className="chat-header">
         <div className="user-info">
-          <img
-            src={user.imageURL}
-            alt={user.groupName}
-            className="user-avatar"
-          />
+          <img src={user.imageURL || "/placeholder.svg"} alt={user.groupName} className="user-avatar" />
           <div className="user-details">
             <h4>{user.groupName}</h4>
             {user.type !== "groups" && <p>{isOnline ? "Online" : "Offline"}</p>}
@@ -393,80 +470,71 @@ const handleFileChange = async (event) => {
       </div>
 
       <div className="chat-body">
- 
- {messages.map((message, index) => (
-    <div
-      key={index}
-      className={`message ${message.isSender ? "sender" : "receiver"}`}
-    >
-      {message?.attachment?.length > 0 ? (
-        <div className="image-grid">
-      {message.attachment.map((file, index) => {
-        if (file.fileURL.startsWith("data:image/")) {
-          return <img key={index} src={file.fileURL}  alt={`Image-${index}`} style={{ width: "100px", height: "100px", margin: "10px" }}  onClick={() =>
-            openModal(message.attachment.map((img) => img.fileURL))
-          }/>;
-        } else if (file.fileURL.startsWith("data:application/pdf")) {
-          return <embed key={index} src={file.fileURL}  type="application/pdf" width="300px" height="300px" />;
-        } else {
-          return (
-            <a key={index} href={file.fileURL} download={`file-${index}`} style={{ display: "block", margin: "10px", color: "blue" }}>
-              Download File {index + 1}
-            </a>
-          );
-        }
-      })}
+        {messages.map((message, index) => (
+          <div key={index} className={`message ${message.isSender ? "sender" : "receiver"}`}>
+            {message?.attachment?.length > 0 ? (
+              <div className="image-grid">
+                {message.attachment.map((file, index) => {
+                  if (file.fileURL.startsWith("data:image/")) {
+                    return (
+                      <img
+                        key={index}
+                        src={file.fileURL || "/placeholder.svg"}
+                        alt={`Image-${index}`}
+                        style={{ width: "100px", height: "100px", margin: "10px" }}
+                        onClick={() => openModal(message.attachment.map((img) => img.fileURL))}
+                      />
+                    )
+                  } else if (file.fileURL.startsWith("data:application/pdf")) {
+                    return <embed key={index} src={file.fileURL} type="application/pdf" width="300px" height="300px" />
+                  } else {
+                    return (
+                      <a
+                        key={index}
+                        href={file.fileURL}
+                        download={`file-${index}`}
+                        style={{ display: "block", margin: "10px", color: "blue" }}
+                      >
+                        Download File {index + 1}
+                      </a>
+                    )
+                  }
+                })}
+              </div>
+            ) : (
+              <p>
+                <span className="message-time">{message.senderName}</span>
+                {getMessageText(message.text)}
+              </p>
+            )}
 
-        </div>
-      ) : (
-        <p>
-          <span className="message-time">{message.senderName}</span>
-          {getMessageText(message.text)}
-        </p>
-      )}
+            <span className="message-time">{formatTime(message.time)}</span>
+          </div>
+        ))}
 
-      <span className="message-time">{formatTime(message.time)}</span>
-    </div>
-  ))} 
-
-    <div ref={messagesEndRef} />
-      <Modal
-      open={visible} footer={null} onCancel={() => setVisible(false)}>
-        <Image.PreviewGroup>
-          {selectedImages.map((img, index) => (
-            <Image key={index} src={img} />
-          ))}
-        </Image.PreviewGroup>
-        
-      </Modal>
-    </div>
+        <div ref={messagesEndRef} />
+        <Modal open={visible} footer={null} onCancel={() => setVisible(false)}>
+          <Image.PreviewGroup>
+            {selectedImages.map((img, index) => (
+              <Image key={index} src={img || "/placeholder.svg"} />
+            ))}
+          </Image.PreviewGroup>
+        </Modal>
+      </div>
       <div className="messageField">
         <button className="icon-btn" onClick={handleAttachmentClick}>
           <i className="ri-attachment-line"></i>
         </button>
 
-        <input
-          type="file"
-          ref={fileInputRef}
-       
-          multiple
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
+        <input type="file" ref={fileInputRef} multiple style={{ display: "none" }} onChange={handleFileChange} />
 
         <div className="emoji-wrapper">
           {isEmojiPickerOpen && (
             <div className="emoji-picker">
-              <EmojiPicker
-                onEmojiClick={handleEmojiClick}
-                searchDisabled={true}
-              />
+              <EmojiPicker onEmojiClick={handleEmojiClick} searchDisabled={true} />
             </div>
           )}
-          <button
-            className="icon-btn"
-            onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
-          >
+          <button className="icon-btn" onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}>
             <i className="ri-emoji-sticker-line"></i>
           </button>
         </div>
@@ -478,7 +546,7 @@ const handleFileChange = async (event) => {
           placeholder="Type your message here..."
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              handleSendMessage();
+              handleSendMessage()
             }
           }}
         />
@@ -488,7 +556,7 @@ const handleFileChange = async (event) => {
         </button>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default ChatWindow;
+export default ChatWindow

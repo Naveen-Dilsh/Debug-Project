@@ -131,7 +131,7 @@ export const fetchGroupMessages = async (groupId) => {
     }
 
     const currentUser = getCurrentUser();
-    return formatMessages(response?.messages?.messages || [], currentUser.id.toString());
+    return formatMessages(response?.data?.messages || [], currentUser.id.toString());
   } catch (error) {
     console.error("Error fetching group messages:", error);
     sendNotify("error", "Failed to load messages");
